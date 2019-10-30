@@ -270,7 +270,7 @@ int main() {
 
    EVP_PKEY_CTX *pctx, *kctx;
    EVP_PKEY_CTX *ctx;
-   EVP_PKEY *pkey, *peerkey, *params = NULL;
+   EVP_PKEY *pkey = NULL, *peerkey, *params = NULL;
 
    EC_KEY *a;
    EVP_PKEY *a_evppkey;
