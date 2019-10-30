@@ -276,7 +276,7 @@ int main() {
    EVP_PKEY *a_evppkey;
 
    unsigned char * secret;
-   size_t *secret_len;
+   size_t secret_len = 32;
    unsigned char ms[] = "master secret";
 
    struct tls_record_header * tls;
@@ -462,17 +462,17 @@ int main() {
       printf("Error 5\n");
    }
    //determine the buffer length of the shared secret
-   if(1 != EVP_PKEY_derive(ctx, NULL, secret_len)){
+   if(1 != EVP_PKEY_derive(ctx, NULL, &secret_len)){
       printf("Error 6\n");
    }
 
    printf("HEY\n");
 
    //create the buffer
-   secret = OPENSSL_malloc(*secret_len);
+   secret = OPENSSL_malloc(secret_len);
 
    //DERIVE THE SHARED SECRET (PRE-MASTER SECRET)
-   if(1 != (EVP_PKEY_derive(ctx, secret, secret_len))){
+   if(1 != (EVP_PKEY_derive(ctx, secret, &secret_len))){
       printf("Shared secret derivation error\n");  
    }
    else printf("EPIC\n");
