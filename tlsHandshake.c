@@ -11,6 +11,7 @@
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/x509.h>
+#include <openssl/err.h>
 
 /*
    ===================================================================
@@ -228,19 +229,65 @@ void evpPubkey_to_buffer(EVP_PKEY *pkey, unsigned char*  buf){
    }
 }
 
-EVP_PKEY * get_peerkey(const unsigned char * buffer){
-   EVP_PKEY *peerkey = NULL;
-   const unsigned char *helper = buffer;
+void handleErrors(const char* tag)
+{
+	int error;
+	int depth;
+	printf("OPENSSL ERROR [\"%s\"]\n", tag);
 
-   //from "openssl/x509.h"
-   peerkey = d2i_PUBKEY(NULL, &helper, sizeof(buffer));
-   if(!peerkey){
-      printf("Error retrieving server pubkey\n");
-      return NULL;
-   }
+	for(depth = 0, error = ERR_get_error(); error > 0; error = ERR_get_error(), depth++) {
+		printf("#%02d: LIB:\"%s\" FUNC:\"%s\" REASON:\"%s\"\n",
+				depth,
+				ERR_lib_error_string(error),
+				ERR_func_error_string(error),
+				ERR_reason_error_string(error));
+	}
 
-   return peerkey;
+	printf("\n");
 }
+
+EVP_PKEY * get_peerkey(const unsigned char * buffer, size_t buffer_len)
+{
+    EC_KEY *tempEcKey = NULL;
+    EVP_PKEY *peerkey = NULL;
+
+    // change this if another curve is required
+    tempEcKey = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+    if(tempEcKey == NULL) {
+        handleErrors("Preparing new curve for server public key");
+        EC_KEY_free(tempEcKey);
+        return NULL;
+    }
+
+    if(EC_KEY_oct2key(tempEcKey, buffer, buffer_len, NULL) != 1)  {
+        handleErrors("Converting raw server public key");
+        EC_KEY_free(tempEcKey);
+        return NULL;
+    }
+
+    if(EC_KEY_check_key(tempEcKey) != 1) {
+        handleErrors("Sanity check on server public key");
+        EC_KEY_free(tempEcKey);
+        return NULL;
+    }
+
+    peerkey = EVP_PKEY_new();
+    if(peerkey == NULL) {
+        handleErrors("Preparing EVP_PKEY for server public key");
+        EC_KEY_free(tempEcKey);
+        return NULL;
+    }
+
+    if(EVP_PKEY_assign_EC_KEY(peerkey, tempEcKey)!= 1) {
+        handleErrors("Assigning server public key");
+        EC_KEY_free(tempEcKey);
+        EVP_PKEY_free(peerkey);
+        return NULL;
+    }
+
+    return peerkey;
+}
+
 
 
 /*
@@ -438,7 +485,7 @@ int main() {
    }
    */
 
-   peerkey = get_peerkey(server_pub_key);
+   peerkey = get_peerkey(server_pub_key, sizeof(server_pub_key));
    
    //generate CLIENT's key pair
    if(1 != EVP_PKEY_keygen_init(kctx)){
