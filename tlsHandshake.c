@@ -378,10 +378,10 @@ int main() {
       if((ke->curve_type == 0x03) && (ke->curve_id[1] == 0x17)){
          // 03 = named curve  
          // 001d = curve x25519
-         memcpy(server_pub_key, &(ke->key_len), (ke->key_len)+1);
+         memcpy(server_pub_key, ke->key, ke->key_len);
 
          printf("\nSERVER EPHEMERAL PUBLIC KEY:\n");
-         stampa_buffer(server_pub_key, (ke->key_len)+1); //ke->key_len = 65 -> 64 bytes of key + 1 byte prefix in uncompressed form
+         stampa_buffer(server_pub_key, ke->key_len); //ke->key_len = 65 -> 64 bytes of key + 1 byte prefix in uncompressed form
 
       }
    }
