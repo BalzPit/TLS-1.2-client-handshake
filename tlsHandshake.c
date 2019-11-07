@@ -11,6 +11,7 @@
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/x509.h>
+#include <openssl/err.h>
 
 /*
    ===================================================================
@@ -228,19 +229,65 @@ void evpPubkey_to_buffer(EVP_PKEY *pkey, unsigned char*  buf){
    }
 }
 
-EVP_PKEY * get_peerkey(const unsigned char * buffer){
-   EVP_PKEY *peerkey = NULL;
-   const unsigned char *helper = buffer;
+void handleErrors(const char* tag)
+{
+	int error;
+	int depth;
+	printf("OPENSSL ERROR [\"%s\"]\n", tag);
 
-   //from "openssl/x509.h"
-   peerkey = d2i_PUBKEY(NULL, &helper, sizeof(buffer));
-   if(!peerkey){
-      printf("Error retrieving server pubkey\n");
-      return NULL;
-   }
+	for(depth = 0, error = ERR_get_error(); error > 0; error = ERR_get_error(), depth++) {
+		printf("#%02d: LIB:\"%s\" FUNC:\"%s\" REASON:\"%s\"\n",
+				depth,
+				ERR_lib_error_string(error),
+				ERR_func_error_string(error),
+				ERR_reason_error_string(error));
+	}
 
-   return peerkey;
+	printf("\n");
 }
+
+EVP_PKEY * get_peerkey(const unsigned char * buffer, size_t buffer_len)
+{
+    EC_KEY *tempEcKey = NULL;
+    EVP_PKEY *peerkey = NULL;
+
+    // change this if another curve is required
+    tempEcKey = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+    if(tempEcKey == NULL) {
+        handleErrors("Preparing new curve for server public key");
+        EC_KEY_free(tempEcKey);
+        return NULL;
+    }
+
+    if(EC_KEY_oct2key(tempEcKey, buffer, buffer_len, NULL) != 1)  {
+        handleErrors("Converting raw server public key");
+        EC_KEY_free(tempEcKey);
+        return NULL;
+    }
+
+    if(EC_KEY_check_key(tempEcKey) != 1) {
+        handleErrors("Sanity check on server public key");
+        EC_KEY_free(tempEcKey);
+        return NULL;
+    }
+
+    peerkey = EVP_PKEY_new();
+    if(peerkey == NULL) {
+        handleErrors("Preparing EVP_PKEY for server public key");
+        EC_KEY_free(tempEcKey);
+        return NULL;
+    }
+
+    if(EVP_PKEY_assign_EC_KEY(peerkey, tempEcKey)!= 1) {
+        handleErrors("Assigning server public key");
+        EC_KEY_free(tempEcKey);
+        EVP_PKEY_free(peerkey);
+        return NULL;
+    }
+
+    return peerkey;
+}
+
 
 
 /*
@@ -270,13 +317,13 @@ int main() {
 
    EVP_PKEY_CTX *pctx, *kctx;
    EVP_PKEY_CTX *ctx;
-   EVP_PKEY *pkey, *peerkey, *params = NULL;
+   EVP_PKEY *pkey = NULL, *peerkey, *params = NULL;
 
    EC_KEY *a;
    EVP_PKEY *a_evppkey;
 
    unsigned char * secret;
-   size_t *secret_len;
+   size_t secret_len = 32;
    unsigned char ms[] = "master secret";
 
    struct tls_record_header * tls;
@@ -378,10 +425,10 @@ int main() {
       if((ke->curve_type == 0x03) && (ke->curve_id[1] == 0x17)){
          // 03 = named curve  
          // 001d = curve x25519
-         memcpy(server_pub_key, &(ke->key_len), (ke->key_len)+1);
+         memcpy(server_pub_key, ke->key, ke->key_len);
 
          printf("\nSERVER EPHEMERAL PUBLIC KEY:\n");
-         stampa_buffer(server_pub_key, (ke->key_len)+1); //ke->key_len = 65 -> 64 bytes of key + 1 byte prefix in uncompressed form
+         stampa_buffer(server_pub_key, ke->key_len); //ke->key_len = 65 -> 64 bytes of key + 1 byte prefix in uncompressed form
 
       }
    }
@@ -438,7 +485,7 @@ int main() {
    }
    */
 
-   peerkey = get_peerkey(server_pub_key);
+   peerkey = get_peerkey(server_pub_key, sizeof(server_pub_key));
    
    //generate CLIENT's key pair
    if(1 != EVP_PKEY_keygen_init(kctx)){
@@ -462,17 +509,17 @@ int main() {
       printf("Error 5\n");
    }
    //determine the buffer length of the shared secret
-   if(1 != EVP_PKEY_derive(ctx, NULL, secret_len)){
+   if(1 != EVP_PKEY_derive(ctx, NULL, &secret_len)){
       printf("Error 6\n");
    }
 
    printf("HEY\n");
 
    //create the buffer
-   secret = OPENSSL_malloc(*secret_len);
+   secret = OPENSSL_malloc(secret_len);
 
    //DERIVE THE SHARED SECRET (PRE-MASTER SECRET)
-   if(1 != (EVP_PKEY_derive(ctx, secret, secret_len))){
+   if(1 != (EVP_PKEY_derive(ctx, secret, &secret_len))){
       printf("Shared secret derivation error\n");  
    }
    else printf("EPIC\n");
