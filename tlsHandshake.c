@@ -214,20 +214,33 @@ void clientChangeCipherSpec(struct tls_record_header* tls) {
    tls->payload[0] = 1;    //the payload of this message is defined as th ebyte 0x01
 }
 
+/*
+   This function is used to get raw bytes from an EVP_PKEY and put them in a buffer
+*/
+void get_buffer(EVP_PKEY * pkey, unsigned char * client_pub_key, int pkeyLen) {
 
-void evpPubkey_to_buffer(EVP_PKEY *pkey, unsigned char*  buf){
-   int pkeyLen;
-   unsigned char *ucTempBuf;
-   pkeyLen = i2d_PublicKey(pkey, NULL);
-   buf = (unsigned char *)malloc(pkeyLen+1);
-   ucTempBuf = buf;
-   i2d_PublicKey(pkey, &ucTempBuf);
-   int ii;
-   printf("CLIENT PUBLIC KEY:\n");
-   for(ii = 0; ii < pkeyLen; ii++){
-      printf("%02x\n", (unsigned char) buf[ii]);
+   EC_KEY *tempEcKey = NULL;
+
+   tempEcKey = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+
+   if(0 == (EVP_PKEY_set1_EC_KEY(pkey, tempEcKey))){
+      handleErrors("Assigning EVP_PKEY to EC_KEY");
+      EC_KEY_free(tempEcKey);
+      return;
    }
+
+   const EC_GROUP * group = EC_KEY_get0_group(tempEcKey);
+   point_conversion_form_t form = EC_GROUP_get_point_conversion_form(group);
+
+   //write in the buffer
+   pkeyLen = EC_KEY_key2buf(tempEcKey, form, *client_pub_key, NULL);
+   if(pkeyLen == 0){
+      handleErrors("Creating buffer from key");
+      EC_KEY_free(tempEcKey);
+      return;
+   } 
 }
+
 
 void handleErrors(const char* tag)
 {
@@ -532,14 +545,15 @@ int main() {
    EVP_PKEY_free(params);
    EVP_PKEY_CTX_free(pctx);
 
-/*
 
    //provide the server with our public key
-   evpPubkey_to_buffer(pkey, client_pub_key);
+   get_buffer(pkey, client_pub_key, l);
 
-   printf("CLIENT PUBLIC KEY\n");
-   stampa_buffer(client_pub_key, 1000);
-   
+   printf("\nClient Public Key:\n");
+   stampa_buffer(client_pub_key, l);
+
+/*
+	
    //clean buffer
    bzero(sent, 1000);
    
