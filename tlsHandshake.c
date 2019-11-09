@@ -217,26 +217,23 @@ void clientChangeCipherSpec(struct tls_record_header* tls) {
 /*
    This function is used to get raw bytes from an EVP_PKEY and put them in a buffer
 */
-void get_buffer(EVP_PKEY * pkey, unsigned char * client_pub_key, int pkeyLen) {
+void get_buffer(EVP_PKEY * pkey, unsigned char ** client_pub_key, int *pkeyLen) {
 
    EC_KEY *tempEcKey = NULL;
 
-   tempEcKey = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-
-   if(0 == (EVP_PKEY_set1_EC_KEY(pkey, tempEcKey))){
-      handleErrors("Assigning EVP_PKEY to EC_KEY");
-      EC_KEY_free(tempEcKey);
-      return;
+   tempEcKey = EVP_PKEY_get0_EC_KEY(pkey);
+   if(tempEcKey == NULL) {
+	   handleErrors("Getting EC_KEY from EVP_PKEY");
+	   return;
    }
 
    const EC_GROUP * group = EC_KEY_get0_group(tempEcKey);
    point_conversion_form_t form = EC_GROUP_get_point_conversion_form(group);
 
    //write in the buffer
-   pkeyLen = EC_KEY_key2buf(tempEcKey, form, *client_pub_key, NULL);
-   if(pkeyLen == 0){
+   *pkeyLen = EC_KEY_key2buf(tempEcKey, form, client_pub_key, NULL);
+   if(*pkeyLen == 0){
       handleErrors("Creating buffer from key");
-      EC_KEY_free(tempEcKey);
       return;
    } 
 }
@@ -326,16 +323,17 @@ unsigned char ip[4]={216,58,204,68};   //google
 
 int main() {
 
-   int s,j,n,length,l;
+   int s,j,n,length,l, client_pub_key_length;
 
-   EVP_PKEY_CTX *pctx, *kctx;
-   EVP_PKEY_CTX *ctx;
-   EVP_PKEY *pkey = NULL, *peerkey, *params = NULL;
+   EVP_PKEY_CTX *pctx = NULL, *kctx = NULL;
+   EVP_PKEY_CTX *ctx = NULL;
+   EVP_PKEY *pkey = NULL, *peerkey = NULL, *params = NULL;
 
-   EC_KEY *a;
-   EVP_PKEY *a_evppkey;
+   EC_KEY *a = NULL;
+   EVP_PKEY *a_evppkey = NULL;
 
-   unsigned char * secret;
+   unsigned char * secret = NULL;
+   unsigned char * client_pub_key2 = NULL;
    size_t secret_len = 32;
    unsigned char ms[] = "master secret";
 
@@ -537,20 +535,20 @@ int main() {
    }
    else printf("EPIC\n");
 
-
-   EVP_PKEY_CTX_free(ctx);
-   EVP_PKEY_free(peerkey);
-   EVP_PKEY_free(pkey);
-   EVP_PKEY_CTX_free(kctx);
-   EVP_PKEY_free(params);
-   EVP_PKEY_CTX_free(pctx);
-
-
    //provide the server with our public key
-   get_buffer(pkey, client_pub_key, l);
+   get_buffer(pkey, &client_pub_key2, &client_pub_key_length);
 
    printf("\nClient Public Key:\n");
-   stampa_buffer(client_pub_key, l);
+   stampa_buffer(client_pub_key2, client_pub_key_length);
+
+
+   if(ctx) EVP_PKEY_CTX_free(ctx);
+   if(peerkey) EVP_PKEY_free(peerkey);
+   if(pkey) EVP_PKEY_free(pkey);
+   if(kctx) EVP_PKEY_CTX_free(kctx);
+   if(params) EVP_PKEY_free(params);
+   if(pctx) EVP_PKEY_CTX_free(pctx);
+   if(client_pub_key2) OPENSSL_free(client_pub_key2);
 
 /*
 	
